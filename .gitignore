@@ -5,6 +5,11 @@ build/
 dist/
 wheels/
 *.egg-info
+pyrightconfig.json
+
+^test
+uv.lock
+calculator
 
 # Virtual environments
 .venv
