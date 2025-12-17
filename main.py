@@ -36,37 +36,60 @@ available_functions = types.Tool(
         function_declarations=[get_files_info.schema, get_file_content.schema, run_python_file.schema, write_file.schema],
         )
 
+iter_limit = 20
+
+try:
+    while iter_limit > 0:
 # call the api with the sys prompt, user prompt and available functions
-response = client.models.generate_content(
-    model='gemini-2.5-flash-lite', contents=messages,
-    config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
-)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-lite', contents=messages,
+            config=types.GenerateContentConfig(tools=[available_functions], system_instruction=system_prompt),
+        )
 
-if response.usage_metadata == None:
-    raise RuntimeError("No usage metadata, probably bad request")
+        if response.candidates:
+            for candidate in response.candidates:
+                cont = candidate.content
+                if cont:
+                    messages.append(cont)
 
-functions_called = response.function_calls
-is_verbose = args.verbose
-call_responses = []
 
-if functions_called:
-    # call each function the llm requested
-    for call in functions_called:
-        function_call_result = call_function(call, is_verbose)
-        fun_response = function_call_result.parts[0].function_response.response
+        if response.usage_metadata == None:
+            raise RuntimeError("No usage metadata, probably bad request")
 
-        if not fun_response:
-            raise Exception("No output from function")
+        functions_called = response.function_calls
+        is_verbose = args.verbose
+        call_responses = []
 
-        call_responses.append(function_call_result.parts[0])
+        if functions_called:
+            # call each function the llm requested
+            for call in functions_called:
+                function_call_result = call_function(call, is_verbose)
 
-        if is_verbose:
-            print(f"-> {fun_response}")
+                if function_call_result.parts:
+                    fun_response = function_call_result.parts[0].function_response.response
+                else:
+                    raise Exception("No output from function")
 
-    if args.verbose:
-        print(f"""
-        User prompt: {args.user_prompt}
-        Response tokens: {response.usage_metadata.candidates_token_count}
-        Prompt tokens: {response.usage_metadata.prompt_token_count}
-        Response: {[part.function_response.response for part in call_responses]} 
-              """)
+                call_responses.append(function_call_result.parts[0])
+
+                if is_verbose:
+                    print(f"-> {fun_response["result"]}")
+
+            messages.append(types.Content(parts=call_responses, role="user"))
+
+        if args.verbose and response.text and not response.function_calls:
+            print(f"""
+            User prompt: {args.user_prompt}
+            Response tokens: {response.usage_metadata.candidates_token_count}
+            Prompt tokens: {response.usage_metadata.prompt_token_count}
+            Response: {response.text} 
+                  """)
+
+        if response.text and not response.function_calls:
+            print(response.text)
+            break 
+            
+        iter_limit -= 1
+except Exception as e:
+    print(f"Error: {e}")
+
